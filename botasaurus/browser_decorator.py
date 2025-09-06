@@ -58,6 +58,8 @@ def browser(
     create_driver: Optional[Callable] = None,
     host: Optional[str] = None,
     port: Optional[int] = None,
+    attach_to_port: Optional[int] = None,
+    keep_open_after_finish: bool = False,
 ) -> Callable:
     def decorator_browser(func: Callable) -> Callable:
         if not hasattr(func, '_scraper_type'):
@@ -69,7 +71,7 @@ def browser(
         def wrapper_browser(*args, **kwargs) -> Any:
             print_running()
 
-            nonlocal parallel, data, cache, block_images_and_css, block_images, window_size, metadata, add_arguments, extensions, tiny_profile, wait_for_complete_page_load, lang, headless, beep, close_on_crash, async_queue, run_async, profile, proxy, user_agent, reuse_driver, raise_exception, must_raise_exceptions, output, output_formats, max_retry, retry_wait, create_driver, create_error_logs, enable_xvfb_virtual_display, host, port, remove_default_browser_check_argument
+            nonlocal parallel, data, cache, block_images_and_css, block_images, window_size, metadata, add_arguments, extensions, tiny_profile, wait_for_complete_page_load, lang, headless, beep, close_on_crash, async_queue, run_async, profile, proxy, user_agent, reuse_driver, raise_exception, must_raise_exceptions, output, output_formats, max_retry, retry_wait, create_driver, create_error_logs, enable_xvfb_virtual_display, host, port, remove_default_browser_check_argument, attach_to_port, keep_open_after_finish
 
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
@@ -105,6 +107,8 @@ def browser(
             enable_xvfb_virtual_display = kwargs.get("enable_xvfb_virtual_display", enable_xvfb_virtual_display) 
             host = kwargs.get("host", host) 
             port = kwargs.get("port", port) 
+            attach_to_port = kwargs.get("attach_to_port", attach_to_port)
+            keep_open_after_finish = kwargs.get("keep_open_after_finish", keep_open_after_finish)
             remove_default_browser_check_argument = kwargs.get("remove_default_browser_check_argument", remove_default_browser_check_argument)
 
             fn_name = func.__name__
@@ -179,6 +183,8 @@ def browser(
                         enable_xvfb_virtual_display=enable_xvfb_virtual_display,
                         host=host,
                         port=port,
+                        attach_to_port=attach_to_port,
+                        keep_open_after_finish=keep_open_after_finish,
                         remove_default_browser_check_argument=remove_default_browser_check_argument,
                     )
 
@@ -212,11 +218,15 @@ def browser(
                             result = result.data
 
                     return result
-                except Exception as error:
-                    if isinstance(error, KeyboardInterrupt):
+                except KeyboardInterrupt:
+                    try:
+                        # Also close the current driver, respecting keep_open_after_finish
+                        close_driver(driver)
+                    finally:
                         close_driver_pool(_driver_pool)
-                        raise  # Re-raise the KeyboardInterrupt to stop execution
-                    elif isinstance(error, NotFoundException) and not error.raised_once:
+                    raise  # Re-raise the KeyboardInterrupt to stop execution
+                except Exception as error:
+                    if isinstance(error, NotFoundException) and not error.raised_once:
                         if error.raise_maximum_1_time:
                             error.raised_once = True
                         if not reuse_driver:
@@ -246,7 +256,7 @@ def browser(
                     print("Task failed for input:", data)
                     if create_error_logs:
                         save_error_logs(format_exc(), driver)
-                    
+
                     if not close_on_crash:
                         if not IS_PRODUCTION:
                             if headless:
